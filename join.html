@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Inscription livreur</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Page ouverte quand un livreur scanne le QR code de la pâtisserie. -->
+  <div class="login">
+    <div class="langs">
+      <button data-l="fr">Français</button>
+      <button data-l="ar">العربية</button>
+    </div>
+    <h1 id="title"></h1>
+    <div class="card">
+      <p><b>1.</b> <span id="s1"></span></p>
+      <a class="btn primary block" id="dl"></a>
+      <p class="hint" id="s1h"></p>
+    </div>
+    <div class="card">
+      <p><b>2.</b> <span id="s2"></span></p>
+      <a class="btn ok block" id="open"></a>
+      <p class="hint" id="s2h"></p>
+      <p class="qr"><span class="code" id="code"></span></p>
+    </div>
+  </div>
+  <script src="config.js"></script>
+  <script>
+    const T = {
+      fr: {
+        title: 'Inscription livreur',
+        s1: "Installez l'application sur ce téléphone.",
+        dl: "Télécharger l'application",
+        soon: "L'application n'est pas encore disponible.",
+        s1h: 'Android peut demander d’autoriser l’installation : acceptez.',
+        s2: "Une fois installée, ouvrez-la avec ce bouton.",
+        open: "Ouvrir l'application",
+        s2h: 'Si le bouton ne marche pas, ouvrez l’application et tapez ce code :',
+        nocode: 'Code manquant : scannez de nouveau le QR code.',
+      },
+      ar: {
+        title: 'تسجيل الموزّع',
+        s1: 'ثبّت التطبيق على هذا الهاتف.',
+        dl: 'تحميل التطبيق',
+        soon: 'التطبيق غير متوفر بعد.',
+        s1h: 'قد يطلب أندرويد السماح بالتثبيت: وافق.',
+        s2: 'بعد التثبيت، افتحه بهذا الزر.',
+        open: 'فتح التطبيق',
+        s2h: 'إذا لم يعمل الزر، افتح التطبيق واكتب هذا الرمز:',
+        nocode: 'الرمز ناقص: امسح رمز QR من جديد.',
+      },
+    }
+    const token = (location.hash.slice(1) || new URLSearchParams(location.search).get('t') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+    const apk = (window.APP_CONFIG || {}).APK_URL
+    const $ = (id) => document.getElementById(id)
+    function show(l) {
+      const t = T[l]
+      document.documentElement.lang = l
+      document.documentElement.dir = l === 'ar' ? 'rtl' : 'ltr'
+      document.title = t.title
+      $('title').textContent = t.title
+      $('s1').textContent = t.s1
+      $('s1h').textContent = apk ? t.s1h : t.soon
+      $('dl').textContent = t.dl
+      $('s2').textContent = t.s2
+      $('open').textContent = t.open
+      $('s2h').textContent = token ? t.s2h : t.nocode
+      document.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === l))
+    }
+    if (apk) $('dl').href = apk
+    else $('dl').style.display = 'none'
+    $('code').textContent = token
+    if (token) $('open').href = 'hpdispatch://join?t=' + token
+    else $('open').style.display = 'none'
+    document.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => show(b.dataset.l)))
+    show((navigator.language || 'fr').startsWith('ar') ? 'ar' : 'fr')
+  </script>
+</body>
+</html>
