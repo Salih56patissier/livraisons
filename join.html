@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Inscription livreur</title>
-  <link rel="stylesheet" href="style.css?v=1794664296">
+  <link rel="stylesheet" href="style.css?v=1794664683">
 </head>
 <body>
   <!-- Page ouverte quand un livreur scanne le QR code de la pâtisserie. -->
@@ -27,7 +27,7 @@
       <p class="qr"><span class="code" id="code"></span></p>
     </div>
   </div>
-  <script src="config.js?v=1794664296"></script>
+  <script src="config.js?v=1794664683"></script>
   <script>
     const T = {
       fr: {
@@ -40,6 +40,7 @@
         open: "Ouvrir l'application",
         s2h: 'Si le bouton ne marche pas, ouvrez l’application et tapez ce code :',
         nocode: 'Code manquant : scannez de nouveau le QR code.',
+        upd: 'Mise à jour : installez par-dessus l’ancienne version, sans la désinstaller, puis rouvrez l’application.',
       },
       ar: {
         title: 'تسجيل الموزّع',
@@ -51,6 +52,7 @@
         open: 'فتح التطبيق',
         s2h: 'إذا لم يعمل الزر، افتح التطبيق واكتب هذا الرمز:',
         nocode: 'الرمز ناقص: امسح رمز QR من جديد.',
+        upd: 'تحديث: ثبّت فوق النسخة القديمة دون حذفها، ثم افتح التطبيق.',
       },
     }
     const token = (location.hash.slice(1) || new URLSearchParams(location.search).get('t') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
@@ -65,9 +67,9 @@
       $('s1').textContent = t.s1
       $('s1h').textContent = apk ? t.s1h : t.soon
       $('dl').textContent = t.dl
-      $('s2').textContent = t.s2
+      $('s2').textContent = token ? t.s2 : t.upd
       $('open').textContent = t.open
-      $('s2h').textContent = token ? t.s2h : t.nocode
+      $('s2h').textContent = token ? t.s2h : ''
       document.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === l))
     }
     if (apk) $('dl').href = apk

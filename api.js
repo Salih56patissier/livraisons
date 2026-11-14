@@ -230,6 +230,9 @@
         c.status = 'applied'
         log(o.id, 'counter_applied', { amount: diff, payer: p_payer })
       },
+      owner_delete_order: ({ p_order }) => {
+        db.orders = db.orders.filter((o) => o.id !== p_order)
+      },
       staff_rate: ({ p_order, p_stars, p_comment }) => {
         const o = order(p_order)
         need(o, 'delivered')

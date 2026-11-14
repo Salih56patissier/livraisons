@@ -31,6 +31,9 @@
   const minsSince = (d) => Math.floor((Date.now() - new Date(d).getTime()) / 60000)
   const driverOf = (o) => S.data.drivers.find((d) => d.id === o.driver_id)
   const isOwner = () => S.role === 'owner'
+  // Livreur dont l'application n'est pas la dernière version.
+  const outdated = (d) => S.latest && d.status === 'active' && d.app_version !== S.latest.name
+  const updLink = (d) => `https://wa.me/${String(d.phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('upd_msg', { url: new URL('join.html', location.href).href }))}`
   const countersOf = (o) => (S.data.counters || []).filter((c) => c.order_id === o.id)
   const trackUrl = (o) => new URL(`track.html#${o.track_token}`, location.href).href
   const waLink = (o) => `https://wa.me/${String(o.customer_phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('track_msg', { shop: S.data.settings.shop_name || '', url: trackUrl(o) }))}`
@@ -137,6 +140,7 @@
 
   async function start() {
     applyLang()
+    fetch('version.json?t=' + Date.now()).then((r) => r.json()).then((v) => { S.latest = v; render() }).catch(() => {})
     if (!api) {
       app.innerHTML = `<div class="login"><h1>${t('login_title')}</h1><div class="card">${t('config_missing')}</div></div>`
       return
@@ -366,7 +370,7 @@
         <a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a></div></div>`).join('') : `<div class="card muted">${t('no_pending')}</div>`}
       <h3>${t('all_drivers')}</h3>
       ${others.length ? others.map((d) => `<button class="card" data-act="open-driver" data-id="${d.id}"><div class="row">
-        <div class="grow"><div class="title"><bdi>${esc(d.name)}</bdi></div><div class="small muted">${ratingText(d)} · <span class="num">${d.completed_count}</span> ${t('stat_done').toLowerCase()}</div></div>
+        <div class="grow"><div class="title"><bdi>${esc(d.name)}</bdi></div><div class="small muted">${ratingText(d)} · <span class="num">${d.completed_count}</span> ${t('stat_done').toLowerCase()}${outdated(d) ? ` · <b style="color:var(--bad)">${t('upd_needed')}</b>` : ''}</div></div>
         ${driverState(d)}</div></button>`).join('') : `<div class="empty">${t('no_drivers')}</div>`}`
   }
 
@@ -537,6 +541,7 @@
       <h3>${t('timeline')}</h3>
       <div class="card"><ul class="timeline">${(m.events || []).map((e) => `<li><time class="num">${hm(e.at)}</time><span>${esc(eventText(e))}</span></li>`).join('') || '<li class="muted">…</li>'}</ul></div>
       <div class="btns">${canCancel ? `<button class="btn danger" data-act="cancel" data-id="${o.id}">${t('cancel_order')}</button>` : ''}
+        ${isOwner() && !live && !m.raise && !cc ? `<button class="btn danger" data-act="delete-order" data-id="${o.id}">${t('delete_order')}</button>` : ''}
         <button class="btn" data-act="close-modal" data-x="1">${t(m.raise || cc ? 'back' : 'close')}</button></div>`
   }
   function modalDriver(m) {
@@ -554,6 +559,9 @@
         ${stat(d.reliability != null ? d.reliability + '%' : '—', 'stat_score')}
         ${stat(d.rating_avg != null ? Number(d.rating_avg).toFixed(1) + ' ★' : '—', 'stat_rating')}
         ${stat(d.completed_count, 'stat_done')}${stat(d.late_count, 'stat_late')}${stat(d.cancel_count, 'stat_cancel')}</div>
+      ${outdated(d) ? `<div class="card alert warn" style="margin-top:12px"><div class="title small">${t('upd_needed')}</div>
+        <div class="small">${t('upd_text', { v: esc(d.app_version || '?'), l: esc(S.latest.name) })}</div>
+        <div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(updLink(d))}">${t('upd_send')}</a></div></div>` : ''}
       <div class="btns"><a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a>${btns}</div>
       <h3>${t('ratings_history')}</h3>
       <div class="card">${(m.ratings || []).length ? m.ratings.map((r) => `<div class="kv"><span>${'★'.repeat(r.stars)}${r.comment ? ' · ' + esc(r.comment) : ''}</span><span class="small muted num">${new Date(r.created_at).toLocaleDateString(locale())}</span></div>`).join('') : `<span class="muted">${m.ratings ? t('no_ratings') : '…'}</span>`}</div>
@@ -759,6 +767,15 @@
         () => toast(t('position_denied')),
         { enableHighAccuracy: true, timeout: 15000 }
       )
+    },
+    async 'delete-order'(d) {
+      if (!confirm(t('delete_confirm'))) return
+      if (await run(() => api.rpc('owner_delete_order', { p_order: d.id }), t('deleted'))) {
+        S.modal = null
+        await refresh()
+        render(true)
+        if (S.view === 'history') loadHistory()
+      }
     },
     'qr-reset'() { S.qr = null; render(true) },
     async 'qr-new'() {
