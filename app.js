@@ -51,7 +51,7 @@
     if (/Invalid login credentials/i.test(m)) return t('err_login')
     if (/Email not confirmed/i.test(m)) return t('err_unconfirmed')
     if (/Password should be/i.test(m)) return t('err_password_short')
-    const code = (m.match(/\b(bad_phone|name_required|amount_required|bad_status|owner_only|staff_only)\b/) || [])[1]
+    const code = (m.match(/\b(bad_phone|name_required|amount_required|bad_status|owner_only|staff_only|blocked)\b/) || [])[1]
     return code ? t('err_' + code) : t('err_generic')
   }
   async function run(fn, okMsg) {
@@ -174,7 +174,7 @@
   let map = null
   function render(force) {
     // Les écrans où l'on règle une carte ou un formulaire ne sont jamais redessinés par les mises à jour automatiques.
-    if (!force && (editing() || ((S.view === 'new' || S.view === 'settings') && !S.modal))) return
+    if (!force && (editing() || ((S.view === 'new' || S.view === 'settings' || S.view === 'qr') && !S.modal))) return
     // Si l'utilisateur a déplacé ou zoomé la carte, on retrouve la même vue après le rafraîchissement.
     const mapKey = () => S.view + ':' + (S.modal?.id || '')
     const keep = map && map._userMoved ? { key: mapKey(), center: map.getCenter(), zoom: map.getZoom() } : null
@@ -385,10 +385,16 @@
       svg = code.createSvgTag({ cellSize: 6, margin: 3, scalable: true })
     }
     return `<div class="topbar"><h1>${t('qr_title')}</h1></div>
-      <div class="card qr"><p class="muted">${t('qr_text')}</p>
-      ${valid ? `${svg}<p>${t('qr_code')} : <span class="code">${esc(q.token)}</span></p>
-        <p class="muted">${t('qr_expires')} <b id="qr-left" class="num"></b></p>` : ''}
-      <button class="btn primary block" data-act="qr-new">${t(valid ? 'qr_renew' : 'qr_generate')}</button></div>`
+      ${valid ? `<div class="card qr">${q.name ? `<p class="title"><bdi>${esc(q.name)}</bdi> · <span class="num">${esc(q.phone)}</span></p>` : ''}
+        <p class="muted">${t(q.name ? 'qr_text_personal' : 'qr_text')}</p>${svg}
+        <p>${t('qr_code')} : <span class="code">${esc(q.token)}</span></p>
+        <p class="muted">${t('qr_expires')} <b id="qr-left" class="num"></b></p>
+        <button class="btn block" data-act="qr-reset">${t('qr_other')}</button></div>`
+      : `<form class="card" data-form="qr"><p class="muted">${t('qr_intro')}</p>
+        <label for="q-name">${t('qr_name')}</label><input id="q-name" name="name" autocomplete="off" required>
+        <label for="q-phone">${t('qr_phone')}</label><input id="q-phone" name="phone" type="tel" inputmode="tel" placeholder="06 12 34 56 78" dir="ltr" autocomplete="off" required>
+        <div class="btns"><button class="btn primary block">${t('qr_generate')}</button></div></form>
+        <div style="text-align:center"><button class="linkbtn" data-act="qr-new">${t('qr_blank')}</button></div>`}`
   }
 
   // ---- Historique
@@ -754,6 +760,7 @@
         { enableHighAccuracy: true, timeout: 15000 }
       )
     },
+    'qr-reset'() { S.qr = null; render(true) },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
       render(true)
@@ -802,6 +809,16 @@
         shop_lat: S.shopPos?.lat ?? null, shop_lng: S.shopPos?.lng ?? null,
       }
       if (await run(() => api.rpc('owner_update_settings', { p }), t('saved'))) { document.activeElement?.blur(); await refresh(); render(true) }
+    },
+    async qr(form) {
+      const f = new FormData(form)
+      const name = f.get('name').trim(), phone = normPhone(f.get('phone'))
+      if (!name) return toast(t('err_name_required'))
+      if (!/^\+212[5-7]\d{8}$/.test(phone)) return toast(t('err_bad_phone'))
+      if (await run(async () => { S.qr = { ...(await api.rpc('staff_new_token', { p_name: name, p_phone: phone })), name, phone } })) {
+        document.activeElement?.blur()
+        render(true)
+      }
     },
     async password(form) {
       const pw = new FormData(form).get('password')

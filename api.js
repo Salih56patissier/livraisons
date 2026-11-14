@@ -147,7 +147,8 @@
         if (p_role === 'remove') db.staff = db.staff.filter((s) => s.user_id !== p_user)
         else db.staff.find((s) => s.user_id === p_user).role = p_role
       },
-      staff_new_token: () => {
+      staff_new_token: ({ p_phone } = {}) => {
+        if (p_phone && !/^\+212[5-7][0-9]{8}$/.test(p_phone)) throw new Error('bad_phone')
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
         let token = ''
         for (let i = 0; i < 8; i++) token += chars[Math.floor(Math.random() * chars.length)]
