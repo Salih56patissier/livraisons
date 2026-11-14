@@ -56,6 +56,9 @@
       async rating(orderId) {
         return chk(await sb.from('ratings').select('*').eq('order_id', orderId).maybeSingle())
       },
+      async lastPosition(orderId) {
+        return chk(await sb.from('positions').select('*').eq('order_id', orderId).order('at', { ascending: false }).limit(1).maybeSingle())
+      },
       async driverRatings(driverId) {
         return chk(await sb.from('ratings').select('*').eq('driver_id', driverId).order('created_at', { ascending: false }).limit(50))
       },
@@ -238,6 +241,11 @@
       },
       async rating(orderId) {
         return copy(db.ratings.find((r) => r.order_id === orderId) || null)
+      },
+      async lastPosition(orderId) {
+        const o = db.orders.find((x) => x.id === orderId)
+        if (!o || !o.driver_id || o.status === 'delivered') return null
+        return { order_id: orderId, lat: 33.577 + Math.random() * 0.004, lng: -7.61 - Math.random() * 0.004, at: new Date().toISOString() }
       },
       async driverRatings(driverId) {
         return copy(db.ratings.filter((r) => r.driver_id === driverId))

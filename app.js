@@ -148,7 +148,7 @@
     render(true)
     if (S.role && S.role !== 'pending') {
       await refresh()
-      api.subscribe(refreshSoon)
+      api.subscribe((p) => (p && p.table === 'positions' ? onPosition(p.new) : refreshSoon()))
       setInterval(refresh, 20000)
       setInterval(() => api.rpc('staff_tick').catch(() => {}), 60000)
       setInterval(tickUi, 1000)
@@ -472,6 +472,10 @@
         <label for="r-comment">${t('comment')}</label><textarea id="r-comment" rows="2">${esc(m.comment ?? m.rating?.comment ?? '')}</textarea>
         <div class="btns"><button class="btn primary block" data-act="rate" data-id="${o.id}" ${stars ? '' : 'disabled'}>${t('save')}</button></div>`
     }
+    const live = ['accepted', 'at_shop', 'picked_up'].includes(o.status)
+    const mapBlock = live || o.delivered_lat != null
+      ? `<div class="card"><div class="small muted">${live ? (m.pos ? t('pos_live', { t: hm(m.pos.at) }) : t('pos_none')) : t('pos_delivered')}</div><div id="omap" class="map"></div></div>`
+      : ''
     const canCancel = !['delivered', 'cancelled'].includes(o.status) && !m.raise
     return `<div class="row"><h2>${t('order')} #<span class="num">${o.number}</span></h2><span class="chip ${o.status}">${t('st_' + o.status)}</span></div>
       ${o.external_ref ? `<div class="small muted">Feady’s : <span class="num">${esc(o.external_ref)}</span></div>` : ''}
@@ -482,6 +486,7 @@
         ${link ? `<div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(link)}">${t('open_map')}</a></div>` : ''}</div>
       <div class="card"><div class="row"><div class="grow"><div class="small muted">${t('driver')}</div><div class="title">${d ? `<bdi>${esc(d.name)}</bdi>` : t('none')}</div></div>
         ${d ? `<a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a>` : ''}</div></div>
+      ${mapBlock}
       <div class="card">
         <div class="kv"><span>${t('m_amount')}${o.prepaid ? ` · ${t('prepaid_short')}` : ''}</span><b>${money(o.amount)}</b></div>
         <div class="kv"><span>${t('m_fee')}</span><b>${money(o.delivery_fee)}</b></div>
@@ -515,7 +520,40 @@
   }
 
   // ---------------------------------------------------------------- après rendu
+  // Carte du détail d'une commande : magasin, client et position du livreur.
+  function orderMap() {
+    const el = document.getElementById('omap')
+    if (!el || !window.L) return
+    const m = S.modal
+    const o = S.data.orders.find((x) => x.id === m.id) || (S.hist.rows || []).find((x) => x.id === m.id)
+    if (!o) return
+    const s = S.data.settings, pts = []
+    map = L.map(el, { zoomControl: false })
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
+    const dot = (lat, lng, color, label) => {
+      pts.push([lat, lng])
+      return L.circleMarker([lat, lng], { radius: 9, color, fillOpacity: 0.85 }).addTo(map).bindTooltip(label, { permanent: true, direction: 'top' })
+    }
+    if (s.shop_lat != null) dot(s.shop_lat, s.shop_lng, '#6b6468', t('map_shop'))
+    if (o.lat != null) dot(o.lat, o.lng, '#b8245c', t('map_client'))
+    const p = o.status === 'delivered' ? (o.delivered_lat != null ? { lat: o.delivered_lat, lng: o.delivered_lng } : null) : m.pos
+    if (p) map._drv = dot(p.lat, p.lng, '#1c5fa8', t('driver'))
+    if (pts.length > 1) map.fitBounds(pts, { padding: [34, 34], maxZoom: 16 })
+    else if (pts.length) map.setView(pts[0], 15)
+    else map.setView([31.8, -7.1], 6)
+  }
+  // Nouvelle position reçue pour la commande ouverte à l'écran.
+  function onPosition(row) {
+    const m = S.modal
+    if (!row || !m || m.type !== 'order' || m.id !== row.order_id) return
+    if (m.pos && m.pos.at === row.at) return
+    const first = !m.pos
+    m.pos = row
+    if (first || !map || !map._drv || editing()) { if (!editing()) render(true) } else map._drv.setLatLng([row.lat, row.lng])
+  }
+
   function afterRender() {
+    if (S.modal?.type === 'order') orderMap()
     if (S.view === 'new' && S.session && !S.modal) {
       makeMap((loc) => setLocation(loc, false))
     } else if (S.view === 'settings' && !S.modal) {
@@ -535,6 +573,12 @@
       el.textContent = left ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : t('qr_expired')
       if (!left) { S.qr = null; render(true) }
     }
+    // Filet de sécurité : relit la position du livreur toutes les 15 s tant que le détail est ouvert.
+    if (S.modal?.type === 'order' && Date.now() - (tickUi.pos || 0) > 15000) {
+      tickUi.pos = Date.now()
+      const id = S.modal.id
+      api.lastPosition(id).then((p) => { if (p && S.modal?.id === id) onPosition(p) }).catch(() => {})
+    }
     // Rafraîchit les durées et les alertes de la liste.
     if (S.view === 'orders' && !S.modal && Date.now() - (tickUi.last || 0) > 10000) {
       tickUi.last = Date.now()
@@ -549,9 +593,9 @@
     S.modal = { type: 'order', id, ...extra }
     render(true)
     try {
-      const [events, rating] = await Promise.all([api.events(id), api.rating(id)])
+      const [events, rating, pos] = await Promise.all([api.events(id), api.rating(id), api.lastPosition(id).catch(() => null)])
       if (S.modal?.id === id) {
-        Object.assign(S.modal, { events, rating })
+        Object.assign(S.modal, { events, rating, pos })
         render(true)
       }
     } catch (e) {
