@@ -34,6 +34,23 @@
   // Livreur dont l'application n'est pas la dernière version.
   const outdated = (d) => S.latest && d.status === 'active' && d.app_version !== S.latest.name
   const updLink = (d) => `https://wa.me/${String(d.phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('upd_msg', { url: new URL('join.html', location.href).href }))}`
+  // Message de relance d'un livreur hors ligne, dans sa langue, avec les chiffres du jour.
+  function nudgeLink(d) {
+    const done = S.data.orders.filter((o) => o.status === 'delivered')
+    const waiting = S.data.orders.filter((o) => o.status === 'broadcast').length
+    const best = done.reduce((m, o) => Math.max(m, Number(o.driver_gain)), 0)
+    const first = String(d.name || '').split(' ')[0]
+    const shop = S.data.settings.shop_name || ''
+    const link = new URL('join.html', location.href).href
+    const ar = d.lang === 'ar'
+    const lines = [ar ? `السلام عليكم ${first}،` : `Bonjour ${first},`]
+    if (waiting) lines.push(ar ? `لدينا الآن ${waiting} طلب في انتظار موزّع عند ${shop}.` : `Nous avons ${waiting} commande(s) qui attendent un livreur en ce moment chez ${shop}.`)
+    else if (done.length) lines.push(ar ? `اليوم تم توصيل ${done.length} طلب${best ? ` (حتى ${amount(best)} درهم للتوصيلة)` : ''}.` : `Aujourd'hui, ${done.length} commande(s) ont été livrées${best ? ` (jusqu'à ${amount(best)} MAD la course)` : ''}.`)
+    else lines.push(ar ? `الطلبات تصل خلال اليوم عند ${shop}.` : `Les commandes arrivent pendant la journée chez ${shop}.`)
+    lines.push(ar ? 'افتح تطبيق الموزّع واضغط «الاتصال» لتصلك الطلبات القادمة.' : 'Ouvrez l’application Livreur et touchez « Passer en ligne » pour recevoir les prochaines.')
+    if (outdated(d)) lines.push(ar ? `إذا لم تثبّت التحديث بعد: ${link}` : `Si vous n'avez pas encore fait la mise à jour : ${link}`)
+    return `https://wa.me/${String(d.phone).replace(/\D/g, '')}?text=${encodeURIComponent(lines.join('\n'))}`
+  }
   const countersOf = (o) => (S.data.counters || []).filter((c) => c.order_id === o.id)
   const trackUrl = (o) => new URL(`track.html#${o.track_token}`, location.href).href
   const waLink = (o) => `https://wa.me/${String(o.customer_phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('track_msg', { shop: S.data.settings.shop_name || '', url: trackUrl(o) }))}`
@@ -369,9 +386,9 @@
         <button class="btn danger" data-act="driver-status" data-id="${d.id}" data-v="rejected">${t('refuse')}</button>
         <a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a></div></div>`).join('') : `<div class="card muted">${t('no_pending')}</div>`}
       <h3>${t('all_drivers')}</h3>
-      ${others.length ? others.map((d) => `<button class="card" data-act="open-driver" data-id="${d.id}"><div class="row">
+      ${others.length ? others.map((d) => `${d.status === 'active' && !d.online ? `<div class="card" style="padding:0;overflow:hidden">` : ''}<button class="card" ${d.status === 'active' && !d.online ? 'style="border:0;margin:0"' : ''} data-act="open-driver" data-id="${d.id}"><div class="row">
         <div class="grow"><div class="title"><bdi>${esc(d.name)}</bdi></div><div class="small muted">${ratingText(d)} · <span class="num">${d.completed_count}</span> ${t('stat_done').toLowerCase()}${outdated(d) ? ` · <b style="color:var(--bad)">${t('upd_needed')}</b>` : ''}</div></div>
-        ${driverState(d)}</div></button>`).join('') : `<div class="empty">${t('no_drivers')}</div>`}`
+        ${driverState(d)}</div></button>${d.status === 'active' && !d.online ? `<div style="padding:0 14px 14px"><a class="btn" style="display:block" target="_blank" rel="noopener" href="${esc(nudgeLink(d))}">${t('nudge')}</a></div></div>` : ''}`).join('') : `<div class="empty">${t('no_drivers')}</div>`}`
   }
 
   // ---- QR code
@@ -562,6 +579,7 @@
       ${outdated(d) ? `<div class="card alert warn" style="margin-top:12px"><div class="title small">${t('upd_needed')}</div>
         <div class="small">${t('upd_text', { v: esc(d.app_version || '?'), l: esc(S.latest.name) })}</div>
         <div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(updLink(d))}">${t('upd_send')}</a></div></div>` : ''}
+      ${d.status === 'active' && !d.online ? `<div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(nudgeLink(d))}">${t('nudge')}</a></div>` : ''}
       <div class="btns"><a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a>${btns}</div>
       <h3>${t('ratings_history')}</h3>
       <div class="card">${(m.ratings || []).length ? m.ratings.map((r) => `<div class="kv"><span>${'★'.repeat(r.stars)}${r.comment ? ' · ' + esc(r.comment) : ''}</span><span class="small muted num">${new Date(r.created_at).toLocaleDateString(locale())}</span></div>`).join('') : `<span class="muted">${m.ratings ? t('no_ratings') : '…'}</span>`}</div>
