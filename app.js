@@ -173,12 +173,21 @@
   }
   let map = null
   function render(force) {
-    if (!force && (editing() || S.view === 'new')) return
+    // Les écrans où l'on règle une carte ou un formulaire ne sont jamais redessinés par les mises à jour automatiques.
+    if (!force && (editing() || ((S.view === 'new' || S.view === 'settings') && !S.modal))) return
+    // Si l'utilisateur a déplacé ou zoomé la carte, on retrouve la même vue après le rafraîchissement.
+    const mapKey = () => S.view + ':' + (S.modal?.id || '')
+    const keep = map && map._userMoved ? { key: mapKey(), center: map.getCenter(), zoom: map.getZoom() } : null
     if (map) { map.remove(); map = null }
     if (!S.session) app.innerHTML = viewLogin()
     else if (S.role === 'pending') app.innerHTML = viewPendingStaff()
     else app.innerHTML = viewShell()
     afterRender()
+    if (map) {
+      if (keep && keep.key === mapKey()) { map.setView(keep.center, keep.zoom, { animate: false }); map._userMoved = true }
+      const m = map
+      setTimeout(() => m.on('dragstart zoomstart', () => { m._userMoved = true }), 400)
+    }
   }
 
   const langButtons = () => `<div class="langs">
@@ -433,7 +442,8 @@
         <h2>${t('shop')}</h2>
         ${isOwner() ? '' : `<p class="hint">${t('owner_only_note')}</p>`}
         <label for="s-name">${t('shop_name')}</label><input id="s-name" name="shop_name" value="${esc(s.shop_name)}" ${dis}>
-        <label>${t('shop_position')}</label><div id="map" class="map"></div>
+        <label>${t('shop_position')}</label><div id="map" class="map" style="height:320px"></div>
+        ${isOwner() ? `<div class="btns"><button type="button" class="btn" data-act="my-position">${t('use_my_position')}</button></div>` : ''}
         <h2 style="margin-top:18px">${t('delays')}</h2>
         <label for="s-alert">${t('d_alert')}</label><input id="s-alert" name="no_accept_alert_seconds" type="number" min="30" max="3600" value="${s.no_accept_alert_seconds}" ${dis} dir="ltr">
         <label for="s-late">${t('d_late')}</label><input id="s-late" name="late_tolerance_minutes" type="number" min="0" max="60" value="${s.late_tolerance_minutes}" ${dis} dir="ltr">
@@ -577,17 +587,21 @@
     if (first || !map || !map._drv || editing()) { if (!editing()) render(true) } else map._drv.setLatLng([row.lat, row.lng])
   }
 
+  function setShopPos(loc, center) {
+    if (!isOwner() || !map) return
+    S.shopPos = loc
+    map._pin = map._pin ? map._pin.setLatLng([loc.lat, loc.lng]) : L.circleMarker([loc.lat, loc.lng], { radius: 9, color: '#b8245c', fillOpacity: 0.8 }).addTo(map)
+    if (center) map.setView([loc.lat, loc.lng], 17)
+    toast(t('position_set'))
+  }
+
   function afterRender() {
     if (S.modal?.type === 'order') orderMap()
     if (S.view === 'new' && S.session && !S.modal) {
       makeMap((loc) => setLocation(loc, false))
     } else if (S.view === 'settings' && !S.modal) {
       const s = S.data.settings
-      makeMap((loc) => {
-        if (!isOwner()) return
-        S.shopPos = loc
-        map._pin = map._pin ? map._pin.setLatLng([loc.lat, loc.lng]) : L.circleMarker([loc.lat, loc.lng], { radius: 9, color: '#b8245c', fillOpacity: 0.8 }).addTo(map)
-      }, s.shop_lat != null ? [s.shop_lat, s.shop_lng] : null)
+      makeMap(setShopPos, S.shopPos ? [S.shopPos.lat, S.shopPos.lng] : s.shop_lat != null ? [s.shop_lat, s.shop_lng] : null)
     }
     tickUi()
   }
@@ -731,6 +745,14 @@
       const o = S.data.orders.find((x) => x.id === d.id)
       if (!o) return
       try { await navigator.clipboard.writeText(trackUrl(o)); toast(t('copied')) } catch { prompt('', trackUrl(o)) }
+    },
+    'my-position'() {
+      if (!navigator.geolocation) return toast(t('position_denied'))
+      navigator.geolocation.getCurrentPosition(
+        (p) => setShopPos({ lat: p.coords.latitude, lng: p.coords.longitude }, true),
+        () => toast(t('position_denied')),
+        { enableHighAccuracy: true, timeout: 15000 }
+      )
     },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
