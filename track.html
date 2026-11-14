@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Suivi de commande</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .track { max-width: 520px; margin: 0 auto; padding: 16px; }
+    .big { font-size: 1.3rem; font-weight: 700; margin: 6px 0 2px; }
+    .tsteps { display: flex; gap: 6px; margin: 14px 0 4px; }
+    .tsteps i { flex: 1; height: 7px; border-radius: 4px; background: var(--line); }
+    .tsteps i.done { background: var(--ok); }
+  </style>
+</head>
+<body>
+  <!-- Page ouverte par le client avec le lien de suivi envoyé par la pâtisserie. -->
+  <div class="track">
+    <div class="langs">
+      <button data-l="fr">Français</button>
+      <button data-l="ar">العربية</button>
+    </div>
+    <div class="card">
+      <div class="muted small" id="shop"></div>
+      <div class="big" id="state"></div>
+      <div class="muted" id="detail"></div>
+      <div class="tsteps" id="steps"></div>
+    </div>
+    <div class="card" id="paycard" hidden>
+      <div class="kv"><span id="paylabel"></span><b><span class="num" id="pay"></span> <span id="mad"></span></b></div>
+    </div>
+    <div id="map" class="map" hidden></div>
+    <p class="hint" id="updated" style="text-align:center"></p>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const T = {
+      fr: {
+        title: 'Suivi de commande', order: 'Commande', mad: 'MAD', pay: 'À payer à la livraison',
+        s_wait: 'Commande en préparation', d_wait: 'Nous cherchons un livreur.',
+        s_coming: 'Un livreur va chercher votre commande', d_coming: 'Livreur : {name}',
+        s_road: 'Votre commande est en route', d_road: 'Livreur : {name}',
+        s_done: 'Commande livrée', d_done: 'Merci et bon appétit !',
+        s_cancelled: 'Commande annulée', d_cancelled: 'Contactez la pâtisserie pour plus d’informations.',
+        s_unknown: 'Lien de suivi invalide', d_unknown: 'Vérifiez le lien reçu de la pâtisserie.',
+        s_expired: 'Ce suivi est terminé', d_expired: '',
+        s_error: 'Connexion impossible', d_error: 'Nouvel essai automatique dans quelques secondes.',
+        updated: 'Mis à jour à', you: 'Vous', driver: 'Livreur',
+      },
+      ar: {
+        title: 'تتبع الطلب', order: 'طلب', mad: 'درهم', pay: 'المبلغ عند التسليم',
+        s_wait: 'الطلب قيد التحضير', d_wait: 'نبحث عن موزّع.',
+        s_coming: 'موزّع في طريقه لاستلام طلبك', d_coming: 'الموزّع: {name}',
+        s_road: 'طلبك في الطريق إليك', d_road: 'الموزّع: {name}',
+        s_done: 'تم تسليم الطلب', d_done: 'شكراً وبالصحة والراحة!',
+        s_cancelled: 'تم إلغاء الطلب', d_cancelled: 'اتصل بالمحل لمزيد من المعلومات.',
+        s_unknown: 'رابط التتبع غير صالح', d_unknown: 'تحقق من الرابط الذي أرسله المحل.',
+        s_expired: 'انتهى هذا التتبع', d_expired: '',
+        s_error: 'تعذر الاتصال', d_error: 'إعادة المحاولة تلقائياً بعد ثوانٍ.',
+        updated: 'آخر تحديث', you: 'أنت', driver: 'الموزّع',
+      },
+    }
+    const cfg = window.APP_CONFIG || {}
+    const token = location.hash.slice(1).replace(/[^a-zA-Z0-9]/g, '').slice(0, 64)
+    const $ = (id) => document.getElementById(id)
+    let lang = (navigator.language || 'fr').startsWith('ar') ? 'ar' : 'fr'
+    let data = null, failed = false, map = null, mClient = null, mDriver = null
+    const PHASE = { created: 'wait', broadcast: 'wait', accepted: 'coming', at_shop: 'coming', picked_up: 'road', delivered: 'done', cancelled: 'cancelled', unknown: 'unknown', expired: 'expired' }
+
+    function show() {
+      const t = T[lang]
+      document.documentElement.lang = lang
+      document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'
+      document.title = t.title
+      document.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === lang))
+      const phase = failed && !data ? 'error' : PHASE[data?.status] || 'unknown'
+      if (!data && !failed) return
+      $('shop').textContent = data?.shop_name ? `${data.shop_name}${data.number ? ' · ' + t.order + ' #' + data.number : ''}` : ''
+      $('state').textContent = t['s_' + phase]
+      $('detail').textContent = (t['d_' + phase] || '').replace('{name}', data?.driver_name || '')
+      const idx = { wait: 0, coming: 1, road: 2, done: 3 }[phase]
+      $('steps').innerHTML = idx === undefined ? '' : [0, 1, 2, 3].map((i) => `<i class="${i <= idx ? 'done' : ''}"></i>`).join('')
+      const showPay = idx !== undefined && idx < 3 && data?.to_pay != null
+      $('paycard').hidden = !showPay
+      if (showPay) {
+        $('paylabel').textContent = t.pay
+        $('pay').textContent = Number(data.to_pay).toFixed(2).replace(/\.00$/, '')
+        $('mad').textContent = t.mad
+      }
+      $('updated').textContent = data ? `${t.updated} ${new Date().toLocaleTimeString(lang === 'ar' ? 'ar-MA' : 'fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''
+      drawMap(phase, t)
+    }
+
+    function drawMap(phase, t) {
+      const has = phase === 'road' && data.driver_lat != null && window.L
+      $('map').hidden = !has
+      if (!has) return
+      const d = [data.driver_lat, data.driver_lng]
+      if (!map) {
+        map = L.map('map', { zoomControl: false })
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
+        mDriver = L.circleMarker(d, { radius: 10, color: '#1c5fa8', fillOpacity: 0.85 }).addTo(map).bindTooltip(t.driver, { permanent: true, direction: 'top' })
+        if (data.lat != null) {
+          mClient = L.circleMarker([data.lat, data.lng], { radius: 10, color: '#b8245c', fillOpacity: 0.85 }).addTo(map).bindTooltip(t.you, { permanent: true, direction: 'top' })
+          map.fitBounds([d, [data.lat, data.lng]], { padding: [36, 36], maxZoom: 16 })
+        } else map.setView(d, 15)
+      } else {
+        mDriver.setLatLng(d)
+        setTimeout(() => map.invalidateSize(), 0)
+      }
+    }
+
+    async function load() {
+      if (!token || !cfg.SUPABASE_URL) { data = { status: 'unknown' }; return show() }
+      try {
+        const r = await fetch(`${cfg.SUPABASE_URL}/rest/v1/rpc/track_order`, {
+          method: 'POST',
+          headers: { apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + cfg.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_token: token }),
+        })
+        if (!r.ok) throw new Error(r.status)
+        data = await r.json()
+        failed = false
+      } catch (e) {
+        failed = true
+      }
+      show()
+    }
+    document.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.l; show() }))
+    load()
+    setInterval(() => { if (!document.hidden && !['done', 'cancelled', 'unknown', 'expired'].includes(PHASE[data?.status])) load() }, 15000)
+  </script>
+</body>
+</html>

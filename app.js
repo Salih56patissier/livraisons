@@ -12,7 +12,7 @@
     session: null,
     role: null,
     view: 'orders',
-    data: { settings: {}, orders: [], drivers: [], staff: [] },
+    data: { settings: {}, orders: [], drivers: [], staff: [], counters: [] },
     modal: null,
     qr: null,
     hist: { day: localDay(new Date()), rows: null },
@@ -31,6 +31,9 @@
   const minsSince = (d) => Math.floor((Date.now() - new Date(d).getTime()) / 60000)
   const driverOf = (o) => S.data.drivers.find((d) => d.id === o.driver_id)
   const isOwner = () => S.role === 'owner'
+  const countersOf = (o) => (S.data.counters || []).filter((c) => c.order_id === o.id)
+  const trackUrl = (o) => new URL(`track.html#${o.track_token}`, location.href).href
+  const waLink = (o) => `https://wa.me/${String(o.customer_phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('track_msg', { shop: S.data.settings.shop_name || '', url: trackUrl(o) }))}`
   function localDay(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
@@ -211,7 +214,7 @@
   function viewShell() {
     const views = { orders: viewOrders, new: viewNew, drivers: viewDrivers, qr: viewQr, history: viewHistory, settings: viewSettings }
     const pending = S.data.drivers.filter((d) => d.status === 'pending').length
-    const alerts = S.data.orders.filter(alertsOf).length
+    const alerts = S.data.orders.filter(alertsOf).length + (S.data.counters || []).length
     const tab = (k, badge) => `<button data-act="nav" data-v="${k}" class="${S.view === k || (k === 'orders' && S.view === 'new') ? 'on' : ''}">
       ${badge ? `<span class="badge">${badge}</span>` : ''}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>
@@ -234,13 +237,23 @@
     if (d) return `<bdi>${esc(d.name)}</bdi>`
     return ''
   }
+  // Propositions de prix des livreurs sur une commande en attente.
+  function counterBlock(o) {
+    return countersOf(o).map((c) => {
+      const d = S.data.drivers.find((x) => x.id === c.driver_id)
+      return `<div class="card alert warn" style="margin:8px 0 0"><div class="title small">${t('counter_title')}</div>
+        <div><bdi>${esc(d?.name || '')}</bdi> · ${d ? ratingText(d) : ''} · ${t('counter_asks')} <b>${money(c.gain)}</b> <span class="muted small">(${t('counter_now')} ${money(o.driver_gain)})</span></div>
+        <div class="btns"><button class="btn ok" data-act="counter-accept" data-id="${o.id}" data-c="${c.id}">${t('counter_accept')}</button>
+        <button class="btn danger" data-act="counter-refuse" data-c="${c.id}">${t('refuse')}</button></div></div>`
+    }).join('')
+  }
   function orderCard(o) {
     const a = alertsOf(o)
     const head = `<div class="row"><div class="grow"><div class="title">#<span class="num">${o.number}</span> · <bdi>${esc(o.customer_name)}</bdi></div>
       <div class="small muted">${orderLine(o)}</div></div>
       <div style="text-align:end"><span class="chip ${o.status}">${t('st_' + o.status)}</span>
       <div class="small muted" style="margin-top:4px">${money(o.collect_from_customer)}</div></div></div>`
-    if (!a) return `<button class="card" data-act="open-order" data-id="${o.id}">${head}</button>`
+    if (!a) return `<button class="card" data-act="open-order" data-id="${o.id}">${head}</button>${counterBlock(o)}`
     const btns = a === 'no_driver'
       ? `<button class="btn" data-act="raise" data-id="${o.id}" data-n="5"><span class="num">+5</span> ${t('mad')}</button>
          <button class="btn" data-act="raise" data-id="${o.id}" data-n="10"><span class="num">+10</span> ${t('mad')}</button>
@@ -250,7 +263,7 @@
     return `<div class="card alert ${a === 'no_driver' ? 'warn' : ''}">
       <div class="title small">${t(a === 'no_driver' ? 'alert_no_driver' : 'alert_late')}</div>
       <button class="card" style="margin:8px 0 0" data-act="open-order" data-id="${o.id}">${head}</button>
-      <div class="btns">${btns}</div></div>`
+      <div class="btns">${btns}</div>${counterBlock(o)}</div>`
   }
   function viewOrders() {
     const rank = { broadcast: 0, created: 0, accepted: 1, at_shop: 1, picked_up: 2, delivered: 3, cancelled: 4 }
@@ -425,6 +438,9 @@
         <label for="s-alert">${t('d_alert')}</label><input id="s-alert" name="no_accept_alert_seconds" type="number" min="30" max="3600" value="${s.no_accept_alert_seconds}" ${dis} dir="ltr">
         <label for="s-late">${t('d_late')}</label><input id="s-late" name="late_tolerance_minutes" type="number" min="0" max="60" value="${s.late_tolerance_minutes}" ${dis} dir="ltr">
         <label for="s-prio">${t('d_priority')}</label><input id="s-prio" name="priority_seconds" type="number" min="0" max="600" value="${s.priority_seconds}" ${dis} dir="ltr">
+        <h2 style="margin-top:18px">${t('counter_h')}</h2>
+        <label class="check"><input type="checkbox" name="counter_enabled" ${s.counter_enabled ? 'checked' : ''} ${dis}> <span>${t('counter_enable')}</span></label>
+        <label for="s-cd">${t('counter_delay')}</label><input id="s-cd" name="counter_delay_min" type="number" min="0" max="120" value="${Math.round((s.counter_delay_seconds ?? 300) / 60)}" ${dis} dir="ltr">
         ${isOwner() ? `<div class="btns"><button class="btn primary block">${t('save')}</button></div>` : ''}
       </form>
       ${isOwner() ? `<div class="card"><h2>${t('accounts')}</h2>${S.data.staff.map((m) => `<div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)">
@@ -453,15 +469,23 @@
     const d = driverOf(o)
     const link = mapLink(o)
     const pay = Number(o.pay_at_shop)
+    const allowed = o.counter_allowed ?? S.data.settings.counter_enabled
+    const cc = m.counter && (S.data.counters || []).find((c) => c.id === m.counter)
     let actions = ''
-    if (m.raise) {
+    if (cc) {
+      actions = `<p class="title">${t('counter_who', { n: amount(cc.gain - o.driver_gain) })}</p><div class="choice">
+        <button class="btn" data-act="counter-do" data-v="client">${t('raise_client')}<small>${t('raise_client_hint')}</small></button>
+        <button class="btn" data-act="counter-do" data-v="shop">${t('raise_shop')}<small>${t('raise_shop_hint')}</small></button></div>`
+    } else if (m.raise) {
       actions = `<p class="title">${t('raise_who', { n: m.raise })}</p><div class="choice">
         <button class="btn" data-act="raise-do" data-v="client">${t('raise_client')}<small>${t('raise_client_hint')}</small></button>
         <button class="btn" data-act="raise-do" data-v="shop">${t('raise_shop')}<small>${t('raise_shop_hint')}</small></button></div>`
     } else if (o.status === 'created' || o.status === 'broadcast') {
       actions = `<div class="btns"><button class="btn" data-act="raise" data-id="${o.id}" data-n="5"><span class="num">+5</span> ${t('mad')}</button>
         <button class="btn" data-act="raise" data-id="${o.id}" data-n="10"><span class="num">+10</span> ${t('mad')}</button>
-        <button class="btn" data-act="ring" data-id="${o.id}">${t(o.status === 'created' ? 'broadcast' : 'ring_again')}</button></div>`
+        <button class="btn" data-act="ring" data-id="${o.id}">${t(o.status === 'created' ? 'broadcast' : 'ring_again')}</button></div>
+        ${counterBlock(o)}
+        <div class="btns"><button class="btn" data-act="counter-toggle" data-id="${o.id}" data-v="${allowed ? '' : '1'}">${t(allowed ? 'counter_forbid' : 'counter_allow')}</button></div>`
     } else if (o.status === 'accepted' || o.status === 'at_shop') {
       const label = pay > 0 ? t('confirm_payment', { n: amount(pay) }) : pay < 0 ? t('confirm_give', { n: amount(-pay) }) : t('confirm_handover')
       actions = `<div class="btns">${o.payment_confirmed_at ? `<span class="chip delivered">${t('payment_ok')}</span>` : `<button class="btn ok block" data-act="pay" data-id="${o.id}">${label}</button>`}</div>
@@ -476,14 +500,15 @@
     const mapBlock = live || o.delivered_lat != null
       ? `<div class="card"><div class="small muted">${live ? (m.pos ? t('pos_live', { t: hm(m.pos.at) }) : t('pos_none')) : t('pos_delivered')}</div><div id="omap" class="map"></div></div>`
       : ''
-    const canCancel = !['delivered', 'cancelled'].includes(o.status) && !m.raise
+    const canCancel = !['delivered', 'cancelled'].includes(o.status) && !m.raise && !cc
     return `<div class="row"><h2>${t('order')} #<span class="num">${o.number}</span></h2><span class="chip ${o.status}">${t('st_' + o.status)}</span></div>
       ${o.external_ref ? `<div class="small muted">Feady’s : <span class="num">${esc(o.external_ref)}</span></div>` : ''}
       <div class="card" style="margin-top:12px"><div class="title"><bdi>${esc(o.customer_name)}</bdi></div>
         <div class="small"><a href="tel:${esc(o.customer_phone)}" class="num">${esc(o.customer_phone)}</a></div>
         ${o.area || o.address_text ? `<div class="small muted">${esc([o.area, o.address_text].filter(Boolean).join(' · '))}</div>` : ''}
         ${o.note ? `<div class="small" style="margin-top:6px">${esc(o.note)}</div>` : ''}
-        ${link ? `<div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(link)}">${t('open_map')}</a></div>` : ''}</div>
+        ${link ? `<div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(link)}">${t('open_map')}</a></div>` : ''}
+        ${o.track_token && !['delivered', 'cancelled'].includes(o.status) ? `<div class="btns"><a class="btn" target="_blank" rel="noopener" href="${esc(waLink(o))}">${t('track_wa')}</a><button class="btn" data-act="track-copy" data-id="${o.id}">${t('track_copy')}</button></div>` : ''}</div>
       <div class="card"><div class="row"><div class="grow"><div class="small muted">${t('driver')}</div><div class="title">${d ? `<bdi>${esc(d.name)}</bdi>` : t('none')}</div></div>
         ${d ? `<a class="btn" href="tel:${esc(d.phone)}">${t('call')}</a>` : ''}</div></div>
       ${mapBlock}
@@ -496,7 +521,7 @@
       <h3>${t('timeline')}</h3>
       <div class="card"><ul class="timeline">${(m.events || []).map((e) => `<li><time class="num">${hm(e.at)}</time><span>${esc(eventText(e))}</span></li>`).join('') || '<li class="muted">…</li>'}</ul></div>
       <div class="btns">${canCancel ? `<button class="btn danger" data-act="cancel" data-id="${o.id}">${t('cancel_order')}</button>` : ''}
-        <button class="btn" data-act="close-modal" data-x="1">${t(m.raise ? 'back' : 'close')}</button></div>`
+        <button class="btn" data-act="close-modal" data-x="1">${t(m.raise || cc ? 'back' : 'close')}</button></div>`
   }
   function modalDriver(m) {
     const d = S.data.drivers.find((x) => x.id === m.id)
@@ -643,7 +668,7 @@
     },
     'close-modal'(d, el, ev) {
       if (!d.x && ev.target !== el) return // clic à l'intérieur de la fenêtre
-      if (S.modal?.raise) { delete S.modal.raise; render(true); return }
+      if (S.modal?.raise || S.modal?.counter) { delete S.modal.raise; delete S.modal.counter; render(true); return }
       S.modal = null
       render(true)
     },
@@ -687,6 +712,25 @@
     },
     async 'staff-role'(d) {
       if (await run(() => api.rpc('owner_set_staff_role', { p_user: d.id, p_role: d.v }))) { await refresh(); render(true) }
+    },
+    'counter-accept'(d) {
+      if (S.modal?.type === 'order' && S.modal.id === d.id) { S.modal.counter = d.c; render(true) }
+      else openOrder(d.id, { counter: d.c })
+    },
+    async 'counter-refuse'(d) {
+      if (await run(() => api.rpc('staff_counter_refuse', { p_id: d.c }), t('ev_counter_refused'))) await reloadModal()
+    },
+    async 'counter-do'(d) {
+      const id = S.modal.counter
+      if (await run(() => api.rpc('staff_counter_apply', { p_id: id, p_payer: d.v }), t('ev_ring_again'))) { delete S.modal.counter; await reloadModal() }
+    },
+    async 'counter-toggle'(d) {
+      if (await run(() => api.rpc('staff_set_counter', { p_order: d.id, p_allowed: !!d.v }), t('saved'))) await reloadModal()
+    },
+    async 'track-copy'(d) {
+      const o = S.data.orders.find((x) => x.id === d.id)
+      if (!o) return
+      try { await navigator.clipboard.writeText(trackUrl(o)); toast(t('copied')) } catch { prompt('', trackUrl(o)) }
     },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
@@ -732,6 +776,7 @@
       const p = {
         shop_name: f.get('shop_name'), no_accept_alert_seconds: Number(f.get('no_accept_alert_seconds')),
         late_tolerance_minutes: Number(f.get('late_tolerance_minutes')), priority_seconds: Number(f.get('priority_seconds')),
+        counter_enabled: f.get('counter_enabled') === 'on', counter_delay_seconds: Number(f.get('counter_delay_min') || 5) * 60,
         shop_lat: S.shopPos?.lat ?? null, shop_lng: S.shopPos?.lng ?? null,
       }
       if (await run(() => api.rpc('owner_update_settings', { p }), t('saved'))) { document.activeElement?.blur(); await refresh(); render(true) }

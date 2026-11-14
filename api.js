@@ -40,15 +40,17 @@
       },
       async load() {
         const [start] = dayRange()
-        const [settings, orders, drivers, staff] = await Promise.all([
+        const [settings, orders, drivers, staff, counters] = await Promise.all([
           sb.from('settings').select('*').eq('id', 1).single(),
           sb.from('orders').select('*')
             .or(`created_at.gte.${start.toISOString()},status.in.(${ACTIVE.join(',')})`)
             .order('created_at', { ascending: false }),
           sb.from('drivers').select('*').order('created_at'),
           sb.from('staff').select('*').order('created_at'),
+          sb.from('counter_offers').select('*').eq('status', 'pending').order('created_at'),
         ])
-        return { settings: chk(settings), orders: chk(orders), drivers: chk(drivers), staff: chk(staff) }
+        // Les contre-offres n'existent qu'après la mise à jour de la base : on tolère leur absence.
+        return { settings: chk(settings), orders: chk(orders), drivers: chk(drivers), staff: chk(staff), counters: counters.error ? [] : counters.data }
       },
       async events(orderId) {
         return chk(await sb.from('order_events').select('*').eq('order_id', orderId).order('id'))
@@ -94,6 +96,7 @@
       ],
       orders: [],
       events: [],
+      counters: [],
       ratings: [{ id: 'r1', order_id: 'old', driver_id: 'd1', stars: 5, comment: 'Rapide et poli', created_at: ago(1500) }],
       n: 40,
     }
@@ -106,13 +109,14 @@
     }
     const log = (order_id, event, data = {}, at) => db.events.push({ id: db.events.length + 1, order_id, event, data, at: at || new Date().toISOString() })
     const add = (o, evs) => {
-      const row = calc({ id: id(), number: ++db.n, shop_bonus: 0, prepaid: false, ring_seq: 1, created_at: ago(o.age), ...o })
+      const row = calc({ id: id(), track_token: 'demo' + id() + id(), number: ++db.n, shop_bonus: 0, prepaid: false, ring_seq: 1, created_at: ago(o.age), ...o })
       db.orders.unshift(row)
       evs.forEach(([e, m, d]) => log(row.id, e, d, ago(m)))
       return row
     }
-    add({ age: 6, external_ref: '820D-38', customer_name: 'Rajaa H.', customer_phone: '+212701209958', area: 'Maârif', lat: 33.58, lng: -7.63, amount: 22.5, delivery_fee: 15, status: 'broadcast', broadcast_at: ago(6), last_ring_at: ago(6) },
+    const o41 = add({ age: 6, external_ref: '820D-38', customer_name: 'Rajaa H.', customer_phone: '+212701209958', area: 'Maârif', lat: 33.58, lng: -7.63, amount: 22.5, delivery_fee: 15, status: 'broadcast', broadcast_at: ago(6), last_ring_at: ago(6) },
       [['created', 6], ['broadcast', 6]])
+    db.counters.push({ id: 'c1', order_id: o41.id, driver_id: 'd2', gain: 25, status: 'pending' })
     add({ age: 14, customer_name: 'Salma K.', customer_phone: '+212655555555', area: 'Gauthier', address_text: '2e étage, porte bleue', lat: 33.59, lng: -7.62, amount: 180, delivery_fee: 20, status: 'accepted', driver_id: 'd2', eta_minutes: 5, accepted_at: ago(12), eta_at: ago(7) },
       [['created', 14], ['broadcast', 14], ['accepted', 12, { eta: 5 }]])
     add({ age: 20, customer_name: 'Mehdi O.', customer_phone: '+212666666666', area: 'Bourgogne', lat: 33.6, lng: -7.64, amount: 340, delivery_fee: 0, shop_bonus: 25, status: 'at_shop', driver_id: 'd1', eta_minutes: 10, accepted_at: ago(15), eta_at: ago(5), arrived_at: ago(6) },
@@ -164,7 +168,7 @@
         if (!String(p.customer_name || '').trim()) throw new Error('name_required')
         if (!/^\+212[5-7][0-9]{8}$/.test(p.customer_phone || '')) throw new Error('bad_phone')
         if (p.amount === null || p.amount === undefined) throw new Error('amount_required')
-        const o = calc({ id: id(), number: ++db.n, ring_seq: 0, created_at: now(), status: 'created', delivery_fee: 0, shop_bonus: 0, prepaid: false, ...p })
+        const o = calc({ id: id(), track_token: 'demo' + id() + id(), number: ++db.n, ring_seq: 0, created_at: now(), status: 'created', delivery_fee: 0, shop_bonus: 0, prepaid: false, ...p })
         db.orders.unshift(o)
         log(o.id, 'created')
         if (p_broadcast) fn.staff_broadcast({ p_order: o.id })
@@ -206,6 +210,25 @@
         Object.assign(o, { status: 'cancelled', cancelled_at: now() })
         log(o.id, 'cancelled')
       },
+      staff_set_counter: ({ p_order, p_allowed }) => {
+        order(p_order).counter_allowed = p_allowed
+        log(p_order, 'counter_setting')
+      },
+      staff_counter_refuse: ({ p_id }) => {
+        const c = db.counters.find((x) => x.id === p_id)
+        c.status = 'refused'
+        log(c.order_id, 'counter_refused')
+      },
+      staff_counter_apply: ({ p_id, p_payer }) => {
+        const c = db.counters.find((x) => x.id === p_id)
+        const o = order(c.order_id)
+        const diff = c.gain - o.driver_gain
+        if (p_payer === 'client') o.delivery_fee = Number(o.delivery_fee) + diff
+        else o.shop_bonus = Number(o.shop_bonus) + diff
+        Object.assign(calc(o), { ring_seq: o.ring_seq + 1, last_ring_at: now() })
+        c.status = 'applied'
+        log(o.id, 'counter_applied', { amount: diff, payer: p_payer })
+      },
       staff_rate: ({ p_order, p_stars, p_comment }) => {
         const o = order(p_order)
         need(o, 'delivered')
@@ -234,7 +257,7 @@
         return r
       },
       async load() {
-        return copy({ settings: db.settings, orders: db.orders, drivers: db.drivers, staff: db.staff })
+        return copy({ settings: db.settings, orders: db.orders, drivers: db.drivers, staff: db.staff, counters: db.counters.filter((c) => c.status === 'pending') })
       },
       async events(orderId) {
         return copy(db.events.filter((e) => e.order_id === orderId).sort((a, b) => a.at.localeCompare(b.at)))
