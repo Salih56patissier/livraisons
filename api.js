@@ -40,7 +40,7 @@
       },
       async load() {
         const [start] = dayRange()
-        const [settings, orders, drivers, staff, counters] = await Promise.all([
+        const [settings, orders, drivers, staff, counters, invites] = await Promise.all([
           sb.from('settings').select('*').eq('id', 1).single(),
           sb.from('orders').select('*')
             .or(`created_at.gte.${start.toISOString()},status.in.(${ACTIVE.join(',')})`)
@@ -48,9 +48,10 @@
           sb.from('drivers').select('*').order('created_at'),
           sb.from('staff').select('*').order('created_at'),
           sb.from('counter_offers').select('*').eq('status', 'pending').order('created_at'),
+          sb.from('signup_tokens').select('token,driver_name,driver_phone,expires_at').not('driver_phone', 'is', null).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }),
         ])
         // Les contre-offres n'existent qu'après la mise à jour de la base : on tolère leur absence.
-        return { settings: chk(settings), orders: chk(orders), drivers: chk(drivers), staff: chk(staff), counters: counters.error ? [] : counters.data }
+        return { settings: chk(settings), orders: chk(orders), drivers: chk(drivers), staff: chk(staff), counters: counters.error ? [] : counters.data, invites: invites.error ? [] : invites.data }
       },
       async events(orderId) {
         return chk(await sb.from('order_events').select('*').eq('order_id', orderId).order('id'))
@@ -147,8 +148,15 @@
         if (p_role === 'remove') db.staff = db.staff.filter((s) => s.user_id !== p_user)
         else db.staff.find((s) => s.user_id === p_user).role = p_role
       },
-      staff_new_token: ({ p_phone } = {}) => {
+      staff_new_token: ({ p_name, p_phone } = {}) => {
         if (p_phone && !/^\+212[5-7][0-9]{8}$/.test(p_phone)) throw new Error('bad_phone')
+        if (p_phone) {
+          const tk = 'DEMO' + Math.random().toString(36).slice(2, 6).toUpperCase()
+          const exp = new Date(Date.now() + 7 * 864e5).toISOString()
+          db.invites = (db.invites || []).filter((i) => i.driver_phone !== p_phone)
+          db.invites.unshift({ token: tk, driver_name: p_name, driver_phone: p_phone, expires_at: exp })
+          return { token: tk, expires_at: exp }
+        }
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
         let token = ''
         for (let i = 0; i < 8; i++) token += chars[Math.floor(Math.random() * chars.length)]
@@ -261,7 +269,7 @@
         return r
       },
       async load() {
-        return copy({ settings: db.settings, orders: db.orders, drivers: db.drivers, staff: db.staff, counters: db.counters.filter((c) => c.status === 'pending') })
+        return copy({ settings: db.settings, orders: db.orders, drivers: db.drivers, staff: db.staff, counters: db.counters.filter((c) => c.status === 'pending'), invites: db.invites || [] })
       },
       async events(orderId) {
         return copy(db.events.filter((e) => e.order_id === orderId).sort((a, b) => a.at.localeCompare(b.at)))

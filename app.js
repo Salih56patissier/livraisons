@@ -33,8 +33,43 @@
   const isOwner = () => S.role === 'owner'
   // Livreur dont l'application n'est pas la dernière version.
   const outdated = (d) => S.latest && d.status === 'active' && d.app_version !== S.latest.name
-  const updLink = (d) => `https://wa.me/${String(d.phone).replace(/\D/g, '')}?text=${encodeURIComponent(t('upd_msg', { url: new URL('join.html', location.href).href }))}`
-  // Message de relance d'un livreur hors ligne, dans sa langue, avec les chiffres du jour.
+  const wa = (phone, text) => `https://wa.me/${String(phone).replace(/\D/g, '')}?text=${encodeURIComponent(text)}`
+  // Les messages aux livreurs sont toujours envoyés en français ET en arabe.
+  const both = (fr, ar) => `${fr}\n\n— — —\n\n${ar}`
+  const updLink = (d) => {
+    const url = new URL('join.html', location.href).href
+    return wa(d.phone, both(window.I18N.fr.upd_msg.replace('{url}', url), window.I18N.ar.upd_msg.replace('{url}', url)))
+  }
+  // Invitation complète envoyée par WhatsApp : le livreur installe tranquillement, quand il a le temps.
+  function inviteLink(inv) {
+    const url = new URL(`join.html#${inv.token}`, location.href).href
+    const first = String(inv.driver_name || '').split(' ')[0]
+    const shop = S.data.settings.shop_name || ''
+    const fr = [
+      `Bonjour ${first}, bienvenue dans l'équipe de livreurs de ${shop} !`,
+      `Pour recevoir nos commandes, installez l'application (5 minutes, une seule fois) :`,
+      `1. Ouvrez ce lien sur votre téléphone Android : ${url}`,
+      `2. Touchez « Télécharger l'application », puis installez-la (si Android le demande, autorisez l'installation).`,
+      `3. Revenez sur le lien et touchez « Ouvrir l'application ».`,
+      `4. Cochez la case et touchez « Commencer ».`,
+      `5. Touchez « Tout autoriser » et acceptez chaque demande (pour la position, choisissez « Toujours autoriser »).`,
+      `6. Touchez « Terminé » : vous êtes en ligne, les commandes sonneront sur votre téléphone.`,
+      `Ce lien est personnel et valable 7 jours.`,
+    ].join('\n')
+    const ar = [
+      `السلام عليكم ${first}، مرحباً بك في فريق موزّعي ${shop}!`,
+      `لتصلك طلباتنا، ثبّت التطبيق (5 دقائق، مرة واحدة فقط):`,
+      `1. افتح هذا الرابط على هاتفك أندرويد: ${url}`,
+      `2. اضغط «تحميل التطبيق» ثم ثبّته (إذا طلب أندرويد ذلك، اسمح بالتثبيت).`,
+      `3. ارجع إلى الرابط واضغط «فتح التطبيق».`,
+      `4. ضع علامة في الخانة واضغط «ابدأ».`,
+      `5. اضغط «السماح بالكل» ووافق على كل طلب (بالنسبة للموقع اختر «السماح دائماً»).`,
+      `6. اضغط «تم»: أنت الآن متصل، وسيرن هاتفك عند وصول الطلبات.`,
+      `هذا الرابط شخصي وصالح لمدة 7 أيام.`,
+    ].join('\n')
+    return wa(inv.driver_phone, both(fr, ar))
+  }
+  // Message de relance d'un livreur hors ligne, en français et en arabe, avec les chiffres du jour.
   function nudgeLink(d) {
     const done = S.data.orders.filter((o) => o.status === 'delivered')
     const waiting = S.data.orders.filter((o) => o.status === 'broadcast').length
@@ -42,14 +77,24 @@
     const first = String(d.name || '').split(' ')[0]
     const shop = S.data.settings.shop_name || ''
     const link = new URL('join.html', location.href).href
-    const ar = d.lang === 'ar'
-    const lines = [ar ? `السلام عليكم ${first}،` : `Bonjour ${first},`]
-    if (waiting) lines.push(ar ? `لدينا الآن ${waiting} طلب في انتظار موزّع عند ${shop}.` : `Nous avons ${waiting} commande(s) qui attendent un livreur en ce moment chez ${shop}.`)
-    else if (done.length) lines.push(ar ? `اليوم تم توصيل ${done.length} طلب${best ? ` (حتى ${amount(best)} درهم للتوصيلة)` : ''}.` : `Aujourd'hui, ${done.length} commande(s) ont été livrées${best ? ` (jusqu'à ${amount(best)} MAD la course)` : ''}.`)
-    else lines.push(ar ? `الطلبات تصل خلال اليوم عند ${shop}.` : `Les commandes arrivent pendant la journée chez ${shop}.`)
-    lines.push(ar ? 'افتح تطبيق الموزّع واضغط «الاتصال» لتصلك الطلبات القادمة.' : 'Ouvrez l’application Livreur et touchez « Passer en ligne » pour recevoir les prochaines.')
-    if (outdated(d)) lines.push(ar ? `إذا لم تثبّت التحديث بعد: ${link}` : `Si vous n'avez pas encore fait la mise à jour : ${link}`)
-    return `https://wa.me/${String(d.phone).replace(/\D/g, '')}?text=${encodeURIComponent(lines.join('\n'))}`
+    const fr = [`Bonjour ${first},`], ar = [`السلام عليكم ${first}،`]
+    if (waiting) {
+      fr.push(`Nous avons ${waiting} commande(s) qui attendent un livreur en ce moment chez ${shop}.`)
+      ar.push(`لدينا الآن ${waiting} طلب في انتظار موزّع عند ${shop}.`)
+    } else if (done.length) {
+      fr.push(`Aujourd'hui, ${done.length} commande(s) ont été livrées${best ? ` (jusqu'à ${amount(best)} MAD la course)` : ''}.`)
+      ar.push(`اليوم تم توصيل ${done.length} طلب${best ? ` (حتى ${amount(best)} درهم للتوصيلة)` : ''}.`)
+    } else {
+      fr.push(`Les commandes arrivent pendant la journée chez ${shop}.`)
+      ar.push(`الطلبات تصل خلال اليوم عند ${shop}.`)
+    }
+    fr.push('Ouvrez l’application Livreur et touchez « Passer en ligne » pour recevoir les prochaines.')
+    ar.push('افتح تطبيق الموزّع واضغط «الاتصال» لتصلك الطلبات القادمة.')
+    if (outdated(d)) {
+      fr.push(`Si vous n'avez pas encore fait la mise à jour : ${link}`)
+      ar.push(`إذا لم تثبّت التحديث بعد: ${link}`)
+    }
+    return wa(d.phone, both(fr.join('\n'), ar.join('\n')))
   }
   const countersOf = (o) => (S.data.counters || []).filter((c) => c.order_id === o.id)
   const trackUrl = (o) => new URL(`track.html#${o.track_token}`, location.href).href
@@ -405,17 +450,31 @@
       code.make()
       svg = code.createSvgTag({ cellSize: 6, margin: 3, scalable: true })
     }
-    return `<div class="topbar"><h1>${t('qr_title')}</h1></div>
-      ${valid ? `<div class="card qr">${q.name ? `<p class="title"><bdi>${esc(q.name)}</bdi> · <span class="num">${esc(q.phone)}</span></p>` : ''}
-        <p class="muted">${t(q.name ? 'qr_text_personal' : 'qr_text')}</p>${svg}
+    const day = (d) => new Date(d).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })
+    const invites = (S.data.invites || []).filter((i) => !q || i.token !== q.token)
+    const pending = invites.length ? `<h3>${t('inv_pending')}</h3>${invites.map((i) => `<div class="card"><div class="row">
+        <div class="grow"><div class="title"><bdi>${esc(i.driver_name)}</bdi></div><div class="small muted"><span class="num">${esc(i.driver_phone)}</span> · ${t('inv_until')} <span class="num">${day(i.expires_at)}</span></div></div>
+        <a class="btn" target="_blank" rel="noopener" href="${esc(inviteLink(i))}">${t('inv_resend')}</a></div></div>`).join('')}` : ''
+    let top
+    if (valid && q.name) {
+      top = `<div class="card qr"><p class="title"><bdi>${esc(q.name)}</bdi> · <span class="num">${esc(q.phone)}</span></p>
+        <a class="btn primary block" target="_blank" rel="noopener" href="${esc(inviteLink({ token: q.token, driver_name: q.name, driver_phone: q.phone }))}">${t('inv_send')}</a>
+        <p class="muted" style="margin-top:14px">${t('inv_valid')}</p>${svg}
+        <p>${t('qr_code')} : <span class="code">${esc(q.token)}</span></p>
+        <button class="btn block" data-act="qr-reset">${t('qr_other')}</button></div>`
+    } else if (valid) {
+      top = `<div class="card qr"><p class="muted">${t('qr_text')}</p>${svg}
         <p>${t('qr_code')} : <span class="code">${esc(q.token)}</span></p>
         <p class="muted">${t('qr_expires')} <b id="qr-left" class="num"></b></p>
         <button class="btn block" data-act="qr-reset">${t('qr_other')}</button></div>`
-      : `<form class="card" data-form="qr"><p class="muted">${t('qr_intro')}</p>
+    } else {
+      top = `<form class="card" data-form="qr"><p class="muted">${t('qr_intro')}</p>
         <label for="q-name">${t('qr_name')}</label><input id="q-name" name="name" autocomplete="off" required>
         <label for="q-phone">${t('qr_phone')}</label><input id="q-phone" name="phone" type="tel" inputmode="tel" placeholder="06 12 34 56 78" dir="ltr" autocomplete="off" required>
-        <div class="btns"><button class="btn primary block">${t('qr_generate')}</button></div></form>
-        <div style="text-align:center"><button class="linkbtn" data-act="qr-new">${t('qr_blank')}</button></div>`}`
+        <div class="btns"><button class="btn primary block">${t('qr_create')}</button></div></form>
+        <div style="text-align:center"><button class="linkbtn" data-act="qr-new">${t('qr_blank')}</button></div>`
+    }
+    return `<div class="topbar"><h1>${t('qr_title')}</h1></div>${top}${pending}`
   }
 
   // ---- Historique
@@ -795,7 +854,7 @@
         if (S.view === 'history') loadHistory()
       }
     },
-    'qr-reset'() { S.qr = null; render(true) },
+    async 'qr-reset'() { S.qr = null; await refresh(); render(true) },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
       render(true)
@@ -852,6 +911,7 @@
       if (!/^\+212[5-7]\d{8}$/.test(phone)) return toast(t('err_bad_phone'))
       if (await run(async () => { S.qr = { ...(await api.rpc('staff_new_token', { p_name: name, p_phone: phone })), name, phone } })) {
         document.activeElement?.blur()
+        await refresh()
         render(true)
       }
     },
