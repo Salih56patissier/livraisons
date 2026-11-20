@@ -48,7 +48,7 @@
           sb.from('drivers').select('*').order('created_at'),
           sb.from('staff').select('*').order('created_at'),
           sb.from('counter_offers').select('*').eq('status', 'pending').order('created_at'),
-          sb.from('signup_tokens').select('token,driver_name,driver_phone,expires_at').not('driver_phone', 'is', null).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }),
+          sb.from('signup_tokens').select('token,driver_name,driver_phone,expires_at,created_at').not('driver_phone', 'is', null).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }),
         ])
         // Les contre-offres n'existent qu'après la mise à jour de la base : on tolère leur absence.
         return { settings: chk(settings), orders: chk(orders), drivers: chk(drivers), staff: chk(staff), counters: counters.error ? [] : counters.data, invites: invites.error ? [] : invites.data }
@@ -152,9 +152,9 @@
         if (p_phone && !/^\+212[5-7][0-9]{8}$/.test(p_phone)) throw new Error('bad_phone')
         if (p_phone) {
           const tk = 'DEMO' + Math.random().toString(36).slice(2, 6).toUpperCase()
-          const exp = new Date(Date.now() + 7 * 864e5).toISOString()
+          const exp = new Date(Date.now() + 365 * 864e5).toISOString()
           db.invites = (db.invites || []).filter((i) => i.driver_phone !== p_phone)
-          db.invites.unshift({ token: tk, driver_name: p_name, driver_phone: p_phone, expires_at: exp })
+          db.invites.unshift({ token: tk, driver_name: p_name, driver_phone: p_phone, expires_at: exp, created_at: new Date().toISOString() })
           return { token: tk, expires_at: exp }
         }
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'

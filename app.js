@@ -46,26 +46,42 @@
     const first = String(inv.driver_name || '').split(' ')[0]
     const shop = S.data.settings.shop_name || ''
     const fr = [
-      `Bonjour ${first}, bienvenue dans l'équipe de livreurs de ${shop} !`,
-      `Pour recevoir nos commandes, installez l'application (5 minutes, une seule fois) :`,
+      `Bonjour ${first},`,
+      `${shop} a sa propre application de livraison et cherche des livreurs. Voici comment ça marche :`,
+      `• Quand vous êtes disponible, vous passez « en ligne » dans l'application.`,
+      `• Quand nous avons une livraison, votre téléphone sonne. Vous voyez le quartier, la distance et ce que vous gagnez.`,
+      `• Si ça vous intéresse, vous acceptez en indiquant dans combien de temps vous arrivez. Le premier qui accepte prend la course.`,
+      `• Au magasin, vous payez la commande en espèces et vous la récupérez.`,
+      `• Chez le client, vous encaissez la commande + la livraison. Le prix de la livraison est entièrement pour vous.`,
+      `L'application est gratuite. Vous travaillez quand vous voulez, sans obligation.`,
+      ``,
+      `Pour l'installer (5 minutes, quand vous avez le temps) :`,
       `1. Ouvrez ce lien sur votre téléphone Android : ${url}`,
       `2. Touchez « Télécharger l'application », puis installez-la (si Android le demande, autorisez l'installation).`,
       `3. Revenez sur le lien et touchez « Ouvrir l'application ».`,
       `4. Cochez la case et touchez « Commencer ».`,
       `5. Touchez « Tout autoriser » et acceptez chaque demande (pour la position, choisissez « Toujours autoriser »).`,
-      `6. Touchez « Terminé » : vous êtes en ligne, les commandes sonneront sur votre téléphone.`,
-      `Ce lien est personnel et valable 7 jours.`,
+      `6. Touchez « Terminé » : vous êtes en ligne et vous recevrez les commandes.`,
+      `Ce lien est personnel, gardez ce message.`,
     ].join('\n')
     const ar = [
-      `السلام عليكم ${first}، مرحباً بك في فريق موزّعي ${shop}!`,
-      `لتصلك طلباتنا، ثبّت التطبيق (5 دقائق، مرة واحدة فقط):`,
+      `السلام عليكم ${first}،`,
+      `${shop} عندها تطبيق خاص بالتوصيل وتبحث عن موزّعين. هكذا يعمل:`,
+      `• عندما تكون متفرغاً، تضغط «الاتصال» في التطبيق.`,
+      `• عندما يكون عندنا توصيل، يرنّ هاتفك. ترى الحي والمسافة وكم ستربح.`,
+      `• إذا أعجبك، تقبل وتحدد بعد كم دقيقة ستصل. أول من يقبل يأخذ التوصيلة.`,
+      `• في المحل، تدفع ثمن الطلب نقداً وتستلمه.`,
+      `• عند الزبون، تقبض ثمن الطلب + ثمن التوصيل. ثمن التوصيل كله لك.`,
+      `التطبيق مجاني. تعمل متى شئت، بدون أي التزام.`,
+      ``,
+      `لتثبيته (5 دقائق، متى توفر لك الوقت):`,
       `1. افتح هذا الرابط على هاتفك أندرويد: ${url}`,
       `2. اضغط «تحميل التطبيق» ثم ثبّته (إذا طلب أندرويد ذلك، اسمح بالتثبيت).`,
       `3. ارجع إلى الرابط واضغط «فتح التطبيق».`,
       `4. ضع علامة في الخانة واضغط «ابدأ».`,
       `5. اضغط «السماح بالكل» ووافق على كل طلب (بالنسبة للموقع اختر «السماح دائماً»).`,
-      `6. اضغط «تم»: أنت الآن متصل، وسيرن هاتفك عند وصول الطلبات.`,
-      `هذا الرابط شخصي وصالح لمدة 7 أيام.`,
+      `6. اضغط «تم»: أنت الآن متصل وستصلك الطلبات.`,
+      `هذا الرابط خاص بك، احتفظ بهذه الرسالة.`,
     ].join('\n')
     return wa(inv.driver_phone, both(fr, ar))
   }
@@ -453,7 +469,7 @@
     const day = (d) => new Date(d).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })
     const invites = (S.data.invites || []).filter((i) => !q || i.token !== q.token)
     const pending = invites.length ? `<h3>${t('inv_pending')}</h3>${invites.map((i) => `<div class="card"><div class="row">
-        <div class="grow"><div class="title"><bdi>${esc(i.driver_name)}</bdi></div><div class="small muted"><span class="num">${esc(i.driver_phone)}</span> · ${t('inv_until')} <span class="num">${day(i.expires_at)}</span></div></div>
+        <div class="grow"><div class="title"><bdi>${esc(i.driver_name)}</bdi></div><div class="small muted"><span class="num">${esc(i.driver_phone)}</span> · ${t('inv_until')} <span class="num">${day(i.created_at || i.expires_at)}</span></div></div>
         <a class="btn" target="_blank" rel="noopener" href="${esc(inviteLink(i))}">${t('inv_resend')}</a></div></div>`).join('')}` : ''
     let top
     if (valid && q.name) {
