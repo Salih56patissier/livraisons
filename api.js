@@ -118,6 +118,7 @@
     const o41 = add({ age: 6, external_ref: '820D-38', customer_name: 'Rajaa H.', customer_phone: '+212701209958', area: 'Maârif', lat: 33.58, lng: -7.63, amount: 22.5, delivery_fee: 15, status: 'broadcast', broadcast_at: ago(6), last_ring_at: ago(6) },
       [['created', 6], ['broadcast', 6]])
     db.counters.push({ id: 'c1', order_id: o41.id, driver_id: 'd2', gain: 25, status: 'pending' })
+    add({ age: 1, external_ref: '9A1C-12', import_ref: 'demo', customer_name: 'Amine T.', customer_phone: '+212661234567', lat: 33.585, lng: -7.62, amount: 120, delivery_fee: 18, status: 'created', ring_seq: 0 }, [['imported', 1]])
     add({ age: 14, customer_name: 'Salma K.', customer_phone: '+212655555555', area: 'Gauthier', address_text: '2e étage, porte bleue', lat: 33.59, lng: -7.62, amount: 180, delivery_fee: 20, status: 'accepted', driver_id: 'd2', eta_minutes: 5, accepted_at: ago(12), eta_at: ago(7) },
       [['created', 14], ['broadcast', 14], ['accepted', 12, { eta: 5 }]])
     add({ age: 20, customer_name: 'Mehdi O.', customer_phone: '+212666666666', area: 'Bourgogne', lat: 33.6, lng: -7.64, amount: 340, delivery_fee: 0, shop_bonus: 25, status: 'at_shop', driver_id: 'd1', eta_minutes: 10, accepted_at: ago(15), eta_at: ago(5), arrived_at: ago(6) },
@@ -241,6 +242,13 @@
       owner_delete_order: ({ p_order }) => {
         db.orders = db.orders.filter((o) => o.id !== p_order)
       },
+      staff_update_draft: ({ p_order, p }) => {
+        const o = order(p_order)
+        need(o, 'created')
+        for (const k in p) if (p[k] !== null && p[k] !== undefined) o[k] = p[k]
+        calc(o)
+      },
+      owner_import_key: () => 'demo-cle-secrete-0123456789abcdef',
       staff_rate: ({ p_order, p_stars, p_comment }) => {
         const o = order(p_order)
         need(o, 'delivered')

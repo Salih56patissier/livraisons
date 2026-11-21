@@ -178,6 +178,7 @@
   // Alertes : personne n'accepte / livreur en retard.
   function alertsOf(o) {
     const s = S.data.settings
+    if (o.status === 'created' && o.import_ref) return 'to_send'
     if (o.status === 'broadcast' && o.last_ring_at && Date.now() - new Date(o.last_ring_at) > (s.no_accept_alert_seconds || 180) * 1000) return 'no_driver'
     if (o.status === 'accepted' && o.eta_at && Date.now() - new Date(o.eta_at) > (s.late_tolerance_minutes || 5) * 60000) return 'late'
     return null
@@ -345,14 +346,16 @@
       <div style="text-align:end"><span class="chip ${o.status}">${t('st_' + o.status)}</span>
       <div class="small muted" style="margin-top:4px">${money(o.collect_from_customer)}</div></div></div>`
     if (!a) return `<button class="card" data-act="open-order" data-id="${o.id}">${head}</button>${counterBlock(o)}`
-    const btns = a === 'no_driver'
+    const btns = a === 'to_send'
+      ? `<button class="btn primary" data-act="open-order" data-id="${o.id}">${t('open_map').replace(/.*/, t('broadcast'))}</button>`
+      : a === 'no_driver'
       ? `<button class="btn" data-act="raise" data-id="${o.id}" data-n="5"><span class="num">+5</span> ${t('mad')}</button>
          <button class="btn" data-act="raise" data-id="${o.id}" data-n="10"><span class="num">+10</span> ${t('mad')}</button>
          <button class="btn" data-act="ring" data-id="${o.id}">${t('ring_again')}</button>`
       : `<button class="btn danger" data-act="reassign" data-id="${o.id}">${t('reassign')}</button>
          <a class="btn" href="tel:${esc(driverOf(o)?.phone || '')}">${t('call')}</a>`
-    return `<div class="card alert ${a === 'no_driver' ? 'warn' : ''}">
-      <div class="title small">${t(a === 'no_driver' ? 'alert_no_driver' : 'alert_late')}</div>
+    return `<div class="card alert ${a === 'late' ? '' : 'warn'}">
+      <div class="title small">${t(a === 'to_send' ? 'alert_to_send' : a === 'no_driver' ? 'alert_no_driver' : 'alert_late')}</div>
       <button class="card" style="margin:8px 0 0" data-act="open-order" data-id="${o.id}">${head}</button>
       <div class="btns">${btns}</div>${counterBlock(o)}</div>`
   }
@@ -555,6 +558,10 @@
         <label for="s-cd">${t('counter_delay')}</label><input id="s-cd" name="counter_delay_min" type="number" min="0" max="120" value="${Math.round((s.counter_delay_seconds ?? 300) / 60)}" ${dis} dir="ltr">
         ${isOwner() ? `<div class="btns"><button class="btn primary block">${t('save')}</button></div>` : ''}
       </form>
+      ${isOwner() ? `<div class="card"><h2>${t('imp_h')}</h2><p class="small muted">${t('imp_text')}</p>
+        ${S.importKey ? `<p class="num small" style="word-break:break-all;user-select:all">${esc(S.importKey)}</p>
+          <div class="btns"><button class="btn" data-act="imp-copy">${t('imp_copy')}</button><button class="btn danger" data-act="imp-renew">${t('imp_renew')}</button></div>`
+        : `<div class="btns"><button class="btn" data-act="imp-show">${t('imp_show')}</button></div>`}</div>` : ''}
       ${isOwner() ? `<div class="card"><h2>${t('accounts')}</h2>${S.data.staff.map((m) => `<div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)">
         <div class="grow"><div class="title"><bdi>${esc(m.name || m.email || '')}</bdi></div><div class="small muted">${esc(m.email || '')} · ${t('role_' + m.role)}</div></div>
         ${m.role === 'pending' ? `<button class="btn ok" data-act="staff-role" data-id="${m.user_id}" data-v="shop">${t('accept_account')}</button>` : ''}
@@ -593,9 +600,16 @@
         <button class="btn" data-act="raise-do" data-v="client">${t('raise_client')}<small>${t('raise_client_hint')}</small></button>
         <button class="btn" data-act="raise-do" data-v="shop">${t('raise_shop')}<small>${t('raise_shop_hint')}</small></button></div>`
     } else if (o.status === 'created' || o.status === 'broadcast') {
-      actions = `<div class="btns"><button class="btn" data-act="raise" data-id="${o.id}" data-n="5"><span class="num">+5</span> ${t('mad')}</button>
+      const draft = o.status === 'created' ? `<form class="card" data-form="draft" data-id="${o.id}" style="margin-top:12px">
+        <label for="d-area" style="margin-top:0">${t('f_area')}</label><input id="d-area" name="area" value="${esc(o.area || '')}" autocomplete="off">
+        <label for="d-addr">${t('f_address')}</label><input id="d-addr" name="address_text" value="${esc(o.address_text || '')}" autocomplete="off">
+        ${o.lat == null ? `<label for="d-loc">${t('f_location')}</label><input id="d-loc" name="location" dir="ltr" autocomplete="off" placeholder="${esc(t('f_location_hint'))}">` : ''}
+        <label for="d-note">${t('f_note')}</label><input id="d-note" name="note" value="${esc(o.note || '')}" autocomplete="off">
+        <div class="btns"><button class="btn block">${t('draft_save')}</button></div></form>` : ''
+      actions = draft
+      actions += `<div class="btns"><button class="btn" data-act="raise" data-id="${o.id}" data-n="5"><span class="num">+5</span> ${t('mad')}</button>
         <button class="btn" data-act="raise" data-id="${o.id}" data-n="10"><span class="num">+10</span> ${t('mad')}</button>
-        <button class="btn" data-act="ring" data-id="${o.id}">${t(o.status === 'created' ? 'broadcast' : 'ring_again')}</button></div>
+        <button class="btn ${o.status === 'created' ? 'primary' : ''}" data-act="ring" data-id="${o.id}">${t(o.status === 'created' ? 'broadcast' : 'ring_again')}</button></div>
         ${counterBlock(o)}
         <div class="btns"><button class="btn" data-act="counter-toggle" data-id="${o.id}" data-v="${allowed ? '' : '1'}">${t(allowed ? 'counter_forbid' : 'counter_allow')}</button></div>`
     } else if (o.status === 'accepted' || o.status === 'at_shop') {
@@ -870,6 +884,16 @@
         if (S.view === 'history') loadHistory()
       }
     },
+    async 'imp-show'() {
+      if (await run(async () => { S.importKey = await api.rpc('owner_import_key', { p_renew: false }) })) render(true)
+    },
+    async 'imp-copy'() {
+      try { await navigator.clipboard.writeText(S.importKey); toast(t('copied')) } catch { prompt('', S.importKey) }
+    },
+    async 'imp-renew'() {
+      if (!confirm(t('imp_renew_confirm'))) return
+      if (await run(async () => { S.importKey = await api.rpc('owner_import_key', { p_renew: true }) })) render(true)
+    },
     async 'qr-reset'() { S.qr = null; await refresh(); render(true) },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
@@ -929,6 +953,17 @@
         document.activeElement?.blur()
         await refresh()
         render(true)
+      }
+    },
+    async draft(form) {
+      const f = new FormData(form)
+      const p = { area: f.get('area').trim(), address_text: f.get('address_text').trim(), note: f.get('note').trim() }
+      const loc = f.get('location') ? parseLocation(f.get('location')) : null
+      if (loc?.lat != null) Object.assign(p, { lat: loc.lat, lng: loc.lng })
+      else if (loc?.url) p.maps_url = loc.url
+      if (await run(() => api.rpc('staff_update_draft', { p_order: form.dataset.id, p }), t('saved'))) {
+        document.activeElement?.blur()
+        await reloadModal()
       }
     },
     async password(form) {
