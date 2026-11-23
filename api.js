@@ -84,7 +84,7 @@
     const ago = (min) => new Date(Date.now() - min * 60000).toISOString()
     const id = () => 'x' + Math.random().toString(36).slice(2, 10)
     const db = {
-      settings: { id: 1, shop_name: 'Hubert et Pessina', shop_lat: 33.5731, shop_lng: -7.5898, priority_seconds: 30, no_accept_alert_seconds: 180, late_tolerance_minutes: 5 },
+      settings: { id: 1, public_signup: true, shop_name: 'Hubert et Pessina', shop_lat: 33.5731, shop_lng: -7.5898, priority_seconds: 30, no_accept_alert_seconds: 180, late_tolerance_minutes: 5 },
       staff: [
         { user_id: 'me', role: 'owner', name: 'Gérant', email: 'gerant@exemple.ma' },
         { user_id: 's2', role: 'pending', name: 'Téléphone du magasin', email: 'magasin@exemple.ma' },

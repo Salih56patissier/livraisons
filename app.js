@@ -41,6 +41,22 @@
     return wa(d.phone, both(window.I18N.fr.upd_msg.replace('{url}', url), window.I18N.ar.upd_msg.replace('{url}', url)))
   }
   // Invitation complète envoyée par WhatsApp : le livreur installe tranquillement, quand il a le temps.
+  const guideUrl = () => new URL('guide.html', location.href).href
+  // Message à copier-coller (WhatsApp, Facebook, Instagram…) pour les candidats livreurs.
+  function adMessage() {
+    const u = guideUrl()
+    return [
+      'Bonjour ! Hubert & Pessina cherche des livreurs avec son propre système de livraison. Vous choisissez quand vous travaillez, et le prix de la livraison est pour vous. ⚠️ Ça marche uniquement sur Android (pas iPhone pour l’instant).',
+      'Toutes les explications et le téléchargement ici (en français et en darija) :',
+      u,
+      '',
+      '— — —',
+      '',
+      'السلام عليكم! Hubert & Pessina كتقلب على موزّعين بنظام التوصيل ديالها. نتا كتختار أمتى تخدم، وثمن التوصيل ديالك. ⚠️ كيخدم غير على أندرويد (Android)، ماشي iPhone دابا.',
+      'الشرح كامل والتحميل هنا (بالفرنسية والدارجة):',
+      u,
+    ].join('\n')
+  }
   function inviteLink(inv) {
     const url = new URL(`join.html#${inv.token}`, location.href).href
     const first = String(inv.driver_name || '').split(' ')[0]
@@ -493,7 +509,9 @@
         <div class="btns"><button class="btn primary block">${t('qr_create')}</button></div></form>
         <div style="text-align:center"><button class="linkbtn" data-act="qr-new">${t('qr_blank')}</button></div>`
     }
-    return `<div class="topbar"><h1>${t('qr_title')}</h1></div>${top}${pending}`
+    const ad = `<h3>${t('ad_h')}</h3><div class="card"><p class="small muted" style="margin-top:0">${t('ad_text')}</p>
+      <div class="btns"><button class="btn primary" data-act="ad-copy">${t('ad_copy')}</button><button class="btn" data-act="ad-copy-link">${t('ad_link')}</button></div></div>`
+    return `<div class="topbar"><h1>${t('qr_title')}</h1></div>${top}${pending}${ad}`
   }
 
   // ---- Historique
@@ -554,6 +572,7 @@
         <label for="s-late">${t('d_late')}</label><input id="s-late" name="late_tolerance_minutes" type="number" min="0" max="60" value="${s.late_tolerance_minutes}" ${dis} dir="ltr">
         <label for="s-prio">${t('d_priority')}</label><input id="s-prio" name="priority_seconds" type="number" min="0" max="600" value="${s.priority_seconds}" ${dis} dir="ltr">
         <h2 style="margin-top:18px">${t('counter_h')}</h2>
+        <label class="check"><input type="checkbox" name="public_signup" ${s.public_signup !== false ? 'checked' : ''} ${dis}> <span>${t('public_signup')}</span></label>
         <label class="check"><input type="checkbox" name="counter_enabled" ${s.counter_enabled ? 'checked' : ''} ${dis}> <span>${t('counter_enable')}</span></label>
         <label for="s-cd">${t('counter_delay')}</label><input id="s-cd" name="counter_delay_min" type="number" min="0" max="120" value="${Math.round((s.counter_delay_seconds ?? 300) / 60)}" ${dis} dir="ltr">
         ${isOwner() ? `<div class="btns"><button class="btn primary block">${t('save')}</button></div>` : ''}
@@ -894,6 +913,13 @@
       if (!confirm(t('imp_renew_confirm'))) return
       if (await run(async () => { S.importKey = await api.rpc('owner_import_key', { p_renew: true }) })) render(true)
     },
+    async 'ad-copy'() {
+      const m = adMessage()
+      try { await navigator.clipboard.writeText(m); toast(t('copied')) } catch { prompt('', m) }
+    },
+    async 'ad-copy-link'() {
+      try { await navigator.clipboard.writeText(guideUrl()); toast(t('copied')) } catch { prompt('', guideUrl()) }
+    },
     async 'qr-reset'() { S.qr = null; await refresh(); render(true) },
     async 'qr-new'() {
       await run(async () => { S.qr = await api.rpc('staff_new_token') })
@@ -939,7 +965,7 @@
       const p = {
         shop_name: f.get('shop_name'), no_accept_alert_seconds: Number(f.get('no_accept_alert_seconds')),
         late_tolerance_minutes: Number(f.get('late_tolerance_minutes')), priority_seconds: Number(f.get('priority_seconds')),
-        counter_enabled: f.get('counter_enabled') === 'on', counter_delay_seconds: Number(f.get('counter_delay_min') || 5) * 60,
+        counter_enabled: f.get('counter_enabled') === 'on', public_signup: f.get('public_signup') === 'on', counter_delay_seconds: Number(f.get('counter_delay_min') || 5) * 60,
         shop_lat: S.shopPos?.lat ?? null, shop_lng: S.shopPos?.lng ?? null,
       }
       if (await run(() => api.rpc('owner_update_settings', { p }), t('saved'))) { document.activeElement?.blur(); await refresh(); render(true) }
